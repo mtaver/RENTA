@@ -69,12 +69,54 @@ h1, h2, h3 { font-family: 'Manrope', sans-serif; }
 .feature-card h3 { margin-bottom: 16px; font-size: 1.25rem; line-height: 1.25; }
 .feature-card p { color: #c5d3ce; line-height: 1.65; }
 
-.placeholder { width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 128px 0 150px; }
-.placeholder-kicker { color: #bb5b2a; text-transform: uppercase; letter-spacing: .15em; font-size: .82rem; font-weight: 700; }
-.placeholder h1 { margin-bottom: 24px; font-size: clamp(2.7rem, 7vw, 5.5rem); line-height: 1; letter-spacing: -.05em; }
-.placeholder > p:not(.placeholder-kicker) { max-width: 650px; font-size: 1.15rem; line-height: 1.7; color: #4c615b; }
 .secondary-button { margin-top: 20px; border: 1px solid var(--forest); background: transparent; color: var(--forest); }
 .secondary-button:hover { background: var(--forest); color: white; }
+
+.rental-page { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 72px 0 104px; }
+.rental-intro { display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; margin-bottom: 36px; }
+.demo-label, .record-section-heading > p { color: #a74920; text-transform: uppercase; letter-spacing: .14em; font-size: .8rem; font-weight: 700; }
+.rental-intro h1 { max-width: 760px; margin-bottom: 8px; font-size: clamp(2.7rem, 6vw, 5.3rem); line-height: 1; letter-spacing: -.05em; }
+.rental-location { margin-bottom: 0; color: #4d625c; font-size: 1.15rem; }
+.rental-intro .secondary-button { flex: 0 0 auto; margin: 0 0 4px; }
+.demo-notice { display: grid; grid-template-columns: minmax(220px, .7fr) 1.3fr; gap: 28px; margin-bottom: 74px; padding: 22px 24px; border-left: 4px solid #bb5b2a; background: #ebe5d9; }
+.demo-notice strong { font-family: 'Manrope', sans-serif; }
+.demo-notice p { margin: 0; color: #4d625c; line-height: 1.55; }
+.record-section { display: grid; grid-template-columns: minmax(190px, .55fr) 1.45fr; gap: 48px; padding: 64px 0; border-top: 1px solid var(--line); }
+.record-section-heading > p { margin-bottom: 12px; }
+.record-section-heading h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.8rem); line-height: 1.1; letter-spacing: -.035em; }
+.details-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; margin: 0; border-top: 1px solid var(--line); }
+.details-grid div { padding: 22px 12px 22px 0; border-bottom: 1px solid var(--line); }
+.details-grid div:nth-child(even) { padding-left: 24px; border-left: 1px solid var(--line); }
+dt { color: #5f726c; font-size: .88rem; font-weight: 600; }
+dd { margin: 7px 0 0; color: var(--ink); font-size: 1.05rem; font-weight: 700; }
+.charges-card { padding: 8px 32px; background: var(--cream); border: 1px solid var(--line); border-radius: 10px; }
+.charges-list { margin: 0; }
+.charges-list > div { display: flex; justify-content: space-between; gap: 32px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.charges-list > div:last-child { border-bottom: 0; }
+.charges-list dd { margin-top: 0; text-align: right; }
+.charges-list .charges-total { margin: 0 -32px; padding: 25px 32px; background: var(--forest); }
+.charges-total dt, .charges-total dd { color: white; font-size: 1.15rem; }
+.commitments-list { display: grid; gap: 16px; }
+.commitment-card { padding: 28px 30px; background: var(--cream); border: 1px solid var(--line); border-radius: 10px; }
+.commitment-topline { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; }
+.commitment-number { color: #7c8c87; font: 700 .8rem/1 'Manrope', sans-serif; }
+.status { display: inline-flex; align-items: center; min-height: 30px; padding: 5px 11px; border-radius: 999px; font-size: .78rem; font-weight: 700; line-height: 1.2; }
+.status--awaiting-inspection { color: #62471d; background: #f4dfb9; }
+.status--in-progress { color: #234e63; background: #d2e9f2; }
+.status--reported-complete { color: #29533f; background: #d8eadc; }
+.commitment-card h3 { margin-bottom: 24px; font-size: 1.3rem; }
+.commitment-card dl { display: grid; grid-template-columns: .45fr 1.55fr; gap: 20px; margin: 0; padding-top: 20px; border-top: 1px solid var(--line); }
+.commitment-card dl div + div { padding-left: 20px; border-left: 1px solid var(--line); }
+.commitment-card dd { font-size: 1rem; line-height: 1.55; }
+.inspection-note { grid-column: 2; margin: 18px 0 0; padding: 20px 22px; border: 1px dashed #8c9a95; border-radius: 8px; color: #465c55; line-height: 1.6; }
+.handover-section { margin-top: 10px; padding: 64px 48px; border: 0; border-radius: 12px; background: var(--forest); color: white; }
+.handover-section .record-section-heading > p { color: var(--lime); }
+.handover-section .record-section-heading h2 { color: white; }
+.handover-grid { display: grid; gap: 0; }
+.handover-grid div { display: grid; grid-template-columns: .55fr 1.45fr; gap: 22px; padding: 22px 0; border-bottom: 1px solid rgba(255,255,255,.2); }
+.handover-grid div:last-child { border-bottom: 0; }
+.handover-grid span { color: #b7c8c2; font-size: .9rem; }
+.handover-grid strong { line-height: 1.5; }
 
 footer { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid var(--line); color: #536760; font-size: .9rem; }
 footer p { margin-bottom: 0; }
@@ -89,6 +131,11 @@ footer p { margin-bottom: 0; }
   .feature-card:nth-child(2) { border-right: 0; }
   .feature-card:nth-child(3), .feature-card:nth-child(4) { border-top: 1px solid rgba(255,255,255,.2); }
   .feature-card:nth-child(3) { padding-left: 0; }
+  .rental-page { width: min(100% - 32px, 1180px); padding-top: 56px; }
+  .record-section { grid-template-columns: 1fr; gap: 30px; }
+  .inspection-note { grid-column: 1; }
+  .demo-notice { grid-template-columns: 1fr; gap: 10px; }
+  .handover-section { padding: 42px 32px; }
 }
 
 @media (max-width: 540px) {
@@ -99,7 +146,18 @@ footer p { margin-bottom: 0; }
   .feature-grid { grid-template-columns: 1fr; }
   .feature-card, .feature-card + .feature-card { min-height: auto; padding: 26px 0; border-right: 0; border-top: 1px solid rgba(255,255,255,.2); }
   .feature-number { margin-bottom: 28px; }
-  .placeholder { width: calc(100% - 32px); padding: 84px 0 110px; }
+  .rental-intro { align-items: flex-start; flex-direction: column; gap: 24px; }
+  .rental-intro .secondary-button { width: 100%; }
+  .details-grid { grid-template-columns: 1fr; }
+  .details-grid div:nth-child(even) { padding-left: 0; border-left: 0; }
+  .charges-card { padding: 4px 20px; }
+  .charges-list > div { gap: 18px; }
+  .charges-list .charges-total { margin: 0 -20px; padding: 22px 20px; }
+  .commitment-card { padding: 24px 20px; }
+  .commitment-card dl { grid-template-columns: 1fr; }
+  .commitment-card dl div + div { padding: 18px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  .handover-section { margin-right: -16px; margin-left: -16px; padding: 38px 20px; border-radius: 0; }
+  .handover-grid div { grid-template-columns: 1fr; gap: 8px; }
   footer { width: calc(100% - 32px); flex-direction: column; }
 }
 
