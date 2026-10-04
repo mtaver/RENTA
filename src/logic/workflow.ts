@@ -1,7 +1,8 @@
 import { INSPECTION_STORAGE_KEY, parseStoredInspections, type InspectionResult } from './inspections.ts'
+import type { EvidenceMetadata } from './evidence.ts'
 
 export const WORKFLOW_STORAGE_KEY = 'renta:demo-workflow:v2'
-export const WORKFLOW_SCHEMA_VERSION = 2
+export const WORKFLOW_SCHEMA_VERSION = 3
 
 export type DemoRole = 'landlord' | 'tenant'
 
@@ -24,6 +25,7 @@ export interface VersionedInspection {
   result: InspectionResult
   notes: string
   updatedAt: string
+  evidenceIds: string[]
 }
 
 export interface TenantConfirmation {
@@ -33,6 +35,7 @@ export interface TenantConfirmation {
   reportRevisionId: string
   inspectionRevisionId: string
   createdAt: string
+  evidenceIds: string[]
 }
 
 export interface Objection {
@@ -54,6 +57,7 @@ export interface HandoverAcceptance {
     reportRevisionId: string
     inspectionRevisionId: string
     confirmationId: string
+    evidenceIds: string[]
   }>
 }
 
@@ -67,13 +71,14 @@ export interface ActivityEvent {
 }
 
 export interface WorkflowState {
-  schemaVersion: 2
+  schemaVersion: 3
   completionReports: Record<string, CompletionReport>
   inspections: Record<string, VersionedInspection>
   confirmations: TenantConfirmation[]
   objections: Objection[]
   handoverAcceptances: HandoverAcceptance[]
   activity: ActivityEvent[]
+  evidence: Record<string, EvidenceMetadata>
 }
 
 export type AgreementStatus =
@@ -86,13 +91,14 @@ export type AgreementStatus =
 
 export function emptyWorkflowState(): WorkflowState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     completionReports: {},
     inspections: {},
     confirmations: [],
     objections: [],
     handoverAcceptances: [],
     activity: [],
+    evidence: {},
   }
 }
 
@@ -123,6 +129,14 @@ function isInspection(value: unknown): value is VersionedInspection {
     && isText(item.notes) && isText(item.updatedAt)
 }
 
+function isEvidence(value: unknown, allowed: Set<string>): value is EvidenceMetadata {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<EvidenceMetadata>
+  return isText(item.id) && isText(item.commitmentId) && allowed.has(item.commitmentId)
+    && isText(item.description) && (item.label === 'Before repair' || item.label === 'After repair' || item.label === 'Inspection')
+    && isText(item.mimeType) && typeof item.size === 'number' && isText(item.createdAt)
+}
+
 export function loadWorkflowState(
   workflowValue: string | null,
   legacyInspectionValue: string | null,
@@ -131,18 +145,22 @@ export function loadWorkflowState(
   if (workflowValue) {
     try {
       const parsed = JSON.parse(workflowValue) as Partial<WorkflowState>
-      if (parsed.schemaVersion !== WORKFLOW_SCHEMA_VERSION) return emptyWorkflowState()
+      const storedSchema = (parsed as { schemaVersion?: number }).schemaVersion
+      if (storedSchema !== 2 && storedSchema !== WORKFLOW_SCHEMA_VERSION) return emptyWorkflowState()
       const allowed = new Set(commitmentIds)
       const completionReports = Object.fromEntries(Object.entries(parsed.completionReports ?? {}).filter(([id, value]) => allowed.has(id) && isCompletionReport(value)))
       const inspections = Object.fromEntries(Object.entries(parsed.inspections ?? {}).filter(([id, value]) => allowed.has(id) && isInspection(value)))
+      const evidence = Object.fromEntries(Object.entries(parsed.evidence ?? {}).filter(([, value]) => isEvidence(value, allowed)))
+      const migratedInspections = Object.fromEntries(Object.entries(inspections).map(([id, item]) => [id, { ...item, evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds.filter((evidenceId) => evidenceId in evidence) : [] }]))
       return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         completionReports,
-        inspections,
-        confirmations: Array.isArray(parsed.confirmations) ? parsed.confirmations.filter((item): item is TenantConfirmation => Boolean(item && isText(item.id) && allowed.has(item.commitmentId))) : [],
+        inspections: migratedInspections,
+        confirmations: Array.isArray(parsed.confirmations) ? parsed.confirmations.filter((item): item is TenantConfirmation => Boolean(item && isText(item.id) && allowed.has(item.commitmentId))).map((item) => ({ ...item, evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds.filter((id) => id in evidence) : [] })) : [],
         objections: Array.isArray(parsed.objections) ? parsed.objections.filter((item): item is Objection => Boolean(item && isText(item.id) && Array.isArray(item.commitmentIds) && item.commitmentIds.every((id) => allowed.has(id)) && item.open === true)) : [],
-        handoverAcceptances: Array.isArray(parsed.handoverAcceptances) ? parsed.handoverAcceptances.filter((item): item is HandoverAcceptance => Boolean(item && isText(item.id) && Array.isArray(item.snapshot))) : [],
+        handoverAcceptances: Array.isArray(parsed.handoverAcceptances) ? parsed.handoverAcceptances.filter((item): item is HandoverAcceptance => Boolean(item && isText(item.id) && Array.isArray(item.snapshot))).map((item) => ({ ...item, snapshot: item.snapshot.map((snapshot) => ({ ...snapshot, evidenceIds: Array.isArray(snapshot.evidenceIds) ? snapshot.evidenceIds.filter((id) => id in evidence) : [] })) })) : [],
         activity: Array.isArray(parsed.activity) ? parsed.activity.filter((item): item is ActivityEvent => Boolean(item && isText(item.id) && isText(item.action))) : [],
+        evidence,
       }
     } catch {
       return emptyWorkflowState()
@@ -155,6 +173,7 @@ export function loadWorkflowState(
     ...record,
     revisionId: `legacy-${id}-${record.updatedAt}`,
     version: 1,
+    evidenceIds: [],
   }]))
   return state
 }
@@ -170,14 +189,45 @@ export function saveCompletionReport(state: WorkflowState, input: Omit<Completio
   }
 }
 
-export function saveInspection(state: WorkflowState, input: Omit<VersionedInspection, 'revisionId' | 'version' | 'updatedAt'>, now: string): WorkflowState {
+export function saveInspection(state: WorkflowState, input: Omit<VersionedInspection, 'revisionId' | 'version' | 'updatedAt' | 'evidenceIds'>, now: string): WorkflowState {
   const previous = state.inspections[input.commitmentId]
   const version = (previous?.version ?? 0) + 1
-  const inspection: VersionedInspection = { ...input, version, updatedAt: now, revisionId: uid(`inspection-${input.commitmentId}-v${version}`, now) }
+  const inspection: VersionedInspection = { ...input, evidenceIds: previous?.evidenceIds ?? [], version, updatedAt: now, revisionId: uid(`inspection-${input.commitmentId}-v${version}`, now) }
   return {
     ...state,
     inspections: { ...state.inspections, [input.commitmentId]: inspection },
     activity: [...state.activity, { id: uid('activity', now, state.activity.length), actorRole: 'tenant', actorName: input.inspectorName, action: previous ? 'Edited inspection' : 'Recorded inspection', commitmentId: input.commitmentId, timestamp: now }],
+  }
+}
+
+export function addEvidence(state: WorkflowState, metadata: EvidenceMetadata, actorName: string, now: string): WorkflowState {
+  const inspection = state.inspections[metadata.commitmentId]
+  if (!inspection || metadata.commitmentId !== inspection.commitmentId || inspection.evidenceIds.length >= 4) return state
+  return reviseEvidence({ ...state, evidence: { ...state.evidence, [metadata.id]: metadata } }, metadata.commitmentId, [...inspection.evidenceIds, metadata.id], actorName, 'Added photo evidence', now)
+}
+
+export function editEvidence(state: WorkflowState, id: string, replacementId: string, description: string, label: EvidenceMetadata['label'], actorName: string, now: string): WorkflowState {
+  const metadata = state.evidence[id]
+  const inspection = metadata && state.inspections[metadata.commitmentId]
+  if (!metadata || !inspection?.evidenceIds.includes(id) || !description.trim()) return state
+  const replacement = { ...metadata, id: replacementId, description: description.trim(), label, createdAt: now }
+  return reviseEvidence({ ...state, evidence: { ...state.evidence, [replacementId]: replacement } }, metadata.commitmentId, inspection.evidenceIds.map((value) => value === id ? replacementId : value), actorName, 'Edited photo evidence', now)
+}
+
+export function removeCurrentEvidence(state: WorkflowState, id: string, actorName: string, now: string): WorkflowState {
+  const metadata = state.evidence[id]
+  const inspection = metadata && state.inspections[metadata.commitmentId]
+  if (!metadata || !inspection?.evidenceIds.includes(id)) return state
+  return reviseEvidence(state, metadata.commitmentId, inspection.evidenceIds.filter((value) => value !== id), actorName, 'Removed current photo evidence', now)
+}
+
+function reviseEvidence(state: WorkflowState, commitmentId: string, evidenceIds: string[], actorName: string, action: string, now: string): WorkflowState {
+  const previous = state.inspections[commitmentId]
+  const version = previous.version + 1
+  return {
+    ...state,
+    inspections: { ...state.inspections, [commitmentId]: { ...previous, evidenceIds, version, updatedAt: now, revisionId: uid(`inspection-${commitmentId}-v${version}`, now) } },
+    activity: [...state.activity, { id: uid('activity', now, state.activity.length), actorRole: 'tenant', actorName, action, commitmentId, timestamp: now }],
   }
 }
 
@@ -216,6 +266,7 @@ export function confirmCommitment(state: WorkflowState, commitmentId: string, te
   const confirmation: TenantConfirmation = {
     id: uid(`confirmation-${commitmentId}`, now, state.confirmations.length), commitmentId, tenantName,
     reportRevisionId: report.revisionId, inspectionRevisionId: inspection.revisionId, createdAt: now,
+    evidenceIds: [...inspection.evidenceIds],
   }
   return {
     ...state,
@@ -247,6 +298,7 @@ export function acceptHandover(state: WorkflowState, commitmentIds: string[], te
       reportRevisionId: state.completionReports[commitmentId].revisionId,
       inspectionRevisionId: state.inspections[commitmentId].revisionId,
       confirmationId: currentConfirmation(state, commitmentId)!.id,
+      evidenceIds: [...state.inspections[commitmentId].evidenceIds],
     })),
   }
   return {

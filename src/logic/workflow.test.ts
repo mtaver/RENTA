@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  acceptHandover, agreementStatus, canAcceptHandover, canConfirmCommitment, clearWorkflowStorage,
-  confirmCommitment, currentHandoverAcceptance, emptyWorkflowState, loadWorkflowState,
-  saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
+  acceptHandover, addEvidence, agreementStatus, canAcceptHandover, canConfirmCommitment, clearWorkflowStorage,
+  confirmCommitment, currentHandoverAcceptance, editEvidence, emptyWorkflowState, loadWorkflowState,
+  removeCurrentEvidence, saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
 } from './workflow.ts'
 import { INSPECTION_STORAGE_KEY } from './inspections.ts'
 
@@ -63,6 +63,46 @@ test('historical acceptance remains visible after invalidation', () => {
   state = saveInspection(state, { commitmentId: 'one', inspectionDate: '2026-10-03', inspectorName: 'Demo Tenant', result: 'meets', notes: 'Edited.' }, '2026-10-04T13:00:00.000Z')
   assert.equal(currentHandoverAcceptance(state, ['one']), undefined)
   assert.equal(state.handoverAcceptances.length, 1)
+})
+
+test('evidence is associated with its commitment and creates an inspection revision', () => {
+  let state = withInspection(withReport())
+  const previousRevision = state.inspections.one.revisionId
+  state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Window lock', label: 'Inspection', mimeType: 'image/jpeg', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
+  assert.deepEqual(state.inspections.one.evidenceIds, ['photo-1'])
+  assert.equal(state.evidence['photo-1'].commitmentId, 'one')
+  assert.notEqual(state.inspections.one.revisionId, previousRevision)
+})
+
+test('evidence revisions invalidate current confirmation and handover acceptance', () => {
+  let state = withInspection(withReport())
+  state = confirmCommitment(state, 'one', 'Demo Tenant', now)
+  state = acceptHandover(state, ['one'], 'Demo Tenant', now)
+  state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Repair', label: 'After repair', mimeType: 'image/png', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
+  assert.equal(agreementStatus(state, 'one'), 'Review required — record changed')
+  assert.equal(currentHandoverAcceptance(state, ['one']), undefined)
+})
+
+test('removing current evidence preserves historical acceptance references and metadata', () => {
+  let state = withInspection(withReport())
+  state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Repair', label: 'After repair', mimeType: 'image/webp', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
+  state = confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T12:00:00.000Z')
+  state = acceptHandover(state, ['one'], 'Demo Tenant', '2026-10-04T13:00:00.000Z')
+  state = removeCurrentEvidence(state, 'photo-1', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
+  assert.deepEqual(state.inspections.one.evidenceIds, [])
+  assert.deepEqual(state.handoverAcceptances[0].snapshot[0].evidenceIds, ['photo-1'])
+  assert.equal(state.evidence['photo-1'].description, 'Repair')
+})
+
+test('editing evidence creates a new reference without changing historical metadata', () => {
+  let state = withInspection(withReport())
+  state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Original description', label: 'Before repair', mimeType: 'image/jpeg', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
+  state = confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T12:00:00.000Z')
+  state = acceptHandover(state, ['one'], 'Demo Tenant', '2026-10-04T13:00:00.000Z')
+  state = editEvidence(state, 'photo-1', 'photo-2', 'Revised description', 'After repair', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
+  assert.deepEqual(state.inspections.one.evidenceIds, ['photo-2'])
+  assert.equal(state.evidence['photo-1'].description, 'Original description')
+  assert.deepEqual(state.handoverAcceptances[0].snapshot[0].evidenceIds, ['photo-1'])
 })
 
 test('valid legacy inspections survive the storage upgrade', () => {

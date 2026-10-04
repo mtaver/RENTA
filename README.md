@@ -43,8 +43,12 @@ npm test
 - Preserved historical confirmations and handover acceptances when records change
 - Local activity history for reports, inspections, confirmations, objections and acceptance
 - Versioned, RENTA-scoped browser storage with migration of valid earlier inspection records
-- A scoped reset action that removes only the associated RENTA demo records
-- Focused automated tests for workflow prerequisites, invalidation, migration and reset behaviour
+- Browser-local JPEG, PNG and WebP inspection photo evidence, with descriptions, labels, decoding checks and a four-photo/5 MB limit
+- Photo blobs stored in a RENTA-only IndexedDB database; workflow metadata remains linked to versioned inspection records
+- Evidence edits and removals create inspection revisions, invalidating current confirmation and handover acceptance while historical evidence references remain available
+- Accessible thumbnails, larger photo views and confirmed removal
+- A scoped reset action that removes only the associated RENTA demo records and IndexedDB photos, with visible partial-failure reporting
+- Focused automated tests for workflow prerequisites, evidence validation and association, invalidation, historical references, migration and reset behaviour
 - Reusable typed demo data in `src/data/sampleRental.ts`
 - Navigation back to the home page
 - Straightforward responsive CSS, page metadata and a custom favicon
@@ -67,14 +71,13 @@ The sample property and parties are fictional. Demo records stay in the current 
 
 ### Planned
 
-1. Inspection photo uploads
-2. Formal charge approval records
-3. Reviewer decisions and objection resolution
-4. Creating and managing rental records
-5. User accounts, authenticated roles and shared storage
-6. Landlord property listings
-7. Tenant search and rental requests
-8. Mutual ratings, comments, replies and reporting
-9. Downloadable handover reports
+1. Formal charge approval records
+2. Reviewer decisions and objection resolution
+3. Creating and managing rental records
+4. User accounts, authenticated roles and shared storage
+5. Landlord property listings
+6. Tenant search and rental requests
+7. Mutual ratings, comments, replies and reporting
+8. Downloadable handover reports
 
-Accounts, a backend, listings, uploads, ratings, reviewer resolution, payments and production verification services are intentionally outside the current step.
+Accounts, a backend, cloud uploads, listings, ratings, reviewer resolution, payments and production verification services are intentionally outside the current step.
