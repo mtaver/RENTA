@@ -35,13 +35,46 @@ npm test
 - Agreed charges with a calculated total upfront cost and a clearly qualified demo approval status
 - Three property commitments with deadlines, acceptance criteria and accessible status labels
 - A browser-only demo inspection workflow with required-field and future-date validation
-- Editable inspection records saved under a RENTA-specific localStorage key
-- A calculated handover summary with passed, failed and unassessed counts
-- A scoped reset action that removes only RENTA demo inspection data
-- Focused automated tests for the handover decision rules and stored-data parsing
+- A simulated landlord/tenant role switch (not authentication)
+- Versioned landlord completion reports and tenant inspections
+- Explicit tenant repair confirmation tied to the current report and inspection revisions
+- Editable open objections that block affected confirmations and handover acceptance
+- Explicit demo handover acceptance only after all commitments are confirmed by both parties
+- Preserved historical confirmations and handover acceptances when records change
+- Local activity history for reports, inspections, confirmations, objections and acceptance
+- Versioned, RENTA-scoped browser storage with migration of valid earlier inspection records
+- A scoped reset action that removes only the associated RENTA demo records
+- Focused automated tests for workflow prerequisites, invalidation, migration and reset behaviour
 - Reusable typed demo data in `src/data/sampleRental.ts`
 - Navigation back to the home page
 - Straightforward responsive CSS, page metadata and a custom favicon
 - Production build and local preview scripts
 
-The sample property and parties are fictional. Inspection records stay in the current browser and are not shared or independently verified. Authentication, databases, uploads, payment handling, AI, property acceptance and real verification services remain outside this demo.
+The sample property and parties are fictional. Demo records stay in the current browser and are not shared or independently verified. The role switch is not authentication, and local history is not a secure audit trail. Handover acceptance does not authenticate a signature, confirm key transfer or authorise payment.
+
+## Roadmap
+
+### Implemented in the demo
+
+- Approved rental charges and a calculated upfront total
+- Documented property commitments and acceptance criteria
+- Tenant inspection records
+- Landlord completion reports
+- Two-party repair confirmation using versioned records
+- Tenant objections without reviewer resolution
+- Conditional tenant handover acceptance
+- Browser-local activity and transparency history
+
+### Planned
+
+1. Inspection photo uploads
+2. Formal charge approval records
+3. Reviewer decisions and objection resolution
+4. Creating and managing rental records
+5. User accounts, authenticated roles and shared storage
+6. Landlord property listings
+7. Tenant search and rental requests
+8. Mutual ratings, comments, replies and reporting
+9. Downloadable handover reports
+
+Accounts, a backend, listings, uploads, ratings, reviewer resolution, payments and production verification services are intentionally outside the current step.

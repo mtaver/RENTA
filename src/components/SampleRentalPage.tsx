@@ -1,228 +1,85 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { sampleRental, totalUpfrontCost, type CommitmentStatus, type PropertyCommitment } from '../data/sampleRental'
+import { INSPECTION_STORAGE_KEY, type InspectionResult } from '../logic/inspections'
 import {
-  calculateHandoverSummary,
-  clearStoredInspections,
-  INSPECTION_STORAGE_KEY,
-  parseStoredInspections,
-  type InspectionRecord,
-  type InspectionRecords,
-  type InspectionResult,
-} from '../logic/inspections'
+  acceptHandover, agreementStatus, canAcceptHandover, canConfirmCommitment, clearWorkflowStorage,
+  confirmCommitment, currentHandoverAcceptance, emptyWorkflowState, hasOpenObjection,
+  loadWorkflowState, saveCompletionReport, saveInspection, saveObjection,
+  WORKFLOW_STORAGE_KEY, type DemoRole, type Objection, type WorkflowState,
+} from '../logic/workflow'
 
-interface SampleRentalPageProps {
-  onBackHome: () => void
+interface SampleRentalPageProps { onBackHome: () => void }
+type Errors = Record<string, string>
+
+const currency = new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 })
+const resultLabels: Record<InspectionResult, string> = { meets: 'Meets criteria', 'does-not-meet': 'Does not meet criteria', unable: 'Unable to assess' }
+
+function todayIso() { const today = new Date(); return new Date(today.getTime() - today.getTimezoneOffset() * 60_000).toISOString().slice(0, 10) }
+function formatDate(date: string) { return new Intl.DateTimeFormat('en-NG', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`)) }
+function formatTime(timestamp: string) { return new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp)) }
+function statusClass(status: CommitmentStatus) { return `status status--${status.toLowerCase().replaceAll(' ', '-')}` }
+function agreementClass(status: string) { return `agreement-chip agreement-chip--${status.toLowerCase().replaceAll(' ', '-').replace('—', '')}` }
+function FieldError({ id, children }: { id: string, children?: string }) { return children ? <p className="field-error" id={id}>{children}</p> : null }
+
+function CompletionForm({ commitment, state, onSave, onCancel }: { commitment: PropertyCommitment, state: WorkflowState, onSave: (next: WorkflowState) => void, onCancel: () => void }) {
+  const id = useId(), existing = state.completionReports[commitment.id]
+  const [name, setName] = useState(existing?.landlordName ?? ''), [date, setDate] = useState(existing?.completionDate ?? ''), [notes, setNotes] = useState(existing?.notes ?? ''), [errors, setErrors] = useState<Errors>({})
+  const submit = (event: FormEvent) => { event.preventDefault(); const next: Errors = {}; if (!name.trim()) next.name = 'Enter the landlord’s name.'; if (!date) next.date = 'Enter the completion date.'; else if (date > todayIso()) next.date = 'Completion date cannot be in the future.'; if (!notes.trim()) next.notes = 'Enter completion notes.'; if (Object.keys(next).length) return setErrors(next); onSave(saveCompletionReport(state, { commitmentId: commitment.id, landlordName: name.trim(), completionDate: date, notes: notes.trim() }, new Date().toISOString())) }
+  return <form className="workflow-form" onSubmit={submit} noValidate aria-labelledby={`${id}-title`}><div className="inspection-form-heading"><div><p className="form-kicker">{existing ? 'Edit completion report' : 'Report work complete'}</p><h4 id={`${id}-title`}>{commitment.title}</h4></div><button className="text-button" type="button" onClick={onCancel}>Cancel</button></div><div className="form-grid"><div className="field-group"><label htmlFor={`${id}-name`}>Landlord name</label><input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={Boolean(errors.name)} /><FieldError id={`${id}-name-error`}>{errors.name}</FieldError></div><div className="field-group"><label htmlFor={`${id}-date`}>Completion date</label><input id={`${id}-date`} type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} aria-invalid={Boolean(errors.date)} /><FieldError id={`${id}-date-error`}>{errors.date}</FieldError></div><div className="field-group full-field"><label htmlFor={`${id}-notes`}>Completion notes</label><textarea id={`${id}-notes`} rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} aria-invalid={Boolean(errors.notes)} /><FieldError id={`${id}-notes-error`}>{errors.notes}</FieldError></div></div><button className="primary-button save-inspection" type="submit">Save completion report</button></form>
 }
 
-interface FormValues {
-  inspectionDate: string
-  inspectorName: string
-  result: '' | InspectionResult
-  notes: string
+function InspectionForm({ commitment, state, onSave, onCancel }: { commitment: PropertyCommitment, state: WorkflowState, onSave: (next: WorkflowState) => void, onCancel: () => void }) {
+  const id = useId(), existing = state.inspections[commitment.id]
+  const [date, setDate] = useState(existing?.inspectionDate ?? ''), [name, setName] = useState(existing?.inspectorName ?? ''), [result, setResult] = useState<'' | InspectionResult>(existing?.result ?? ''), [notes, setNotes] = useState(existing?.notes ?? ''), [errors, setErrors] = useState<Errors>({})
+  const submit = (event: FormEvent) => { event.preventDefault(); const next: Errors = {}; if (!date) next.date = 'Enter an inspection date.'; else if (date > todayIso()) next.date = 'Inspection date cannot be in the future.'; if (!name.trim()) next.name = 'Enter the inspector’s name.'; if (!result) next.result = 'Choose an inspection result.'; if (!notes.trim()) next.notes = 'Enter inspection notes.'; if (Object.keys(next).length) return setErrors(next); onSave(saveInspection(state, { commitmentId: commitment.id, inspectionDate: date, inspectorName: name.trim(), result: result as InspectionResult, notes: notes.trim() }, new Date().toISOString())) }
+  return <form className="workflow-form" onSubmit={submit} noValidate aria-labelledby={`${id}-title`}><div className="inspection-form-heading"><div><p className="form-kicker">{existing ? 'Edit inspection' : 'Record inspection'}</p><h4 id={`${id}-title`}>{commitment.title}</h4></div><button className="text-button" type="button" onClick={onCancel}>Cancel</button></div><div className="criteria-panel"><span>Acceptance criteria</span><p>{commitment.acceptanceCriteria}</p></div><div className="form-grid"><div className="field-group"><label htmlFor={`${id}-date`}>Inspection date</label><input id={`${id}-date`} type="date" max={todayIso()} value={date} onChange={(e) => setDate(e.target.value)} aria-invalid={Boolean(errors.date)} /><FieldError id={`${id}-date-error`}>{errors.date}</FieldError></div><div className="field-group"><label htmlFor={`${id}-name`}>Inspector name</label><input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={Boolean(errors.name)} /><FieldError id={`${id}-name-error`}>{errors.name}</FieldError></div><fieldset className="field-group result-fieldset"><legend>Result</legend><div className="radio-options">{Object.entries(resultLabels).map(([value, label]) => <label key={value}><input type="radio" name={`${id}-result`} checked={result === value} onChange={() => setResult(value as InspectionResult)} /><span>{label}</span></label>)}</div><FieldError id={`${id}-result-error`}>{errors.result}</FieldError></fieldset><div className="field-group notes-field"><label htmlFor={`${id}-notes`}>Inspection notes</label><textarea id={`${id}-notes`} rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} aria-invalid={Boolean(errors.notes)} /><FieldError id={`${id}-notes-error`}>{errors.notes}</FieldError></div></div><button className="primary-button save-inspection" type="submit">Save inspection</button></form>
 }
 
-type FormErrors = Partial<Record<keyof FormValues, string>>
-
-const currencyFormatter = new Intl.NumberFormat('en-NG', {
-  style: 'currency', currency: 'NGN', maximumFractionDigits: 0,
-})
-
-const resultLabels: Record<InspectionResult, string> = {
-  meets: 'Meets criteria',
-  'does-not-meet': 'Does not meet criteria',
-  unable: 'Unable to assess',
+function ConfirmationForm({ commitment, state, onSave, onCancel }: { commitment: PropertyCommitment, state: WorkflowState, onSave: (next: WorkflowState) => void, onCancel: () => void }) {
+  const id = useId(); const [name, setName] = useState(''), [checked, setChecked] = useState(false), [errors, setErrors] = useState<Errors>({})
+  const submit = (event: FormEvent) => { event.preventDefault(); const next: Errors = {}; if (!name.trim()) next.name = 'Enter the tenant’s name.'; if (!checked) next.checked = 'Confirm that you accept the current report and inspection.'; if (Object.keys(next).length) return setErrors(next); onSave(confirmCommitment(state, commitment.id, name.trim(), new Date().toISOString())) }
+  return <form className="workflow-form compact-form" onSubmit={submit} noValidate aria-labelledby={`${id}-title`}><div className="inspection-form-heading"><div><p className="form-kicker">Tenant confirmation</p><h4 id={`${id}-title`}>{commitment.title}</h4></div><button className="text-button" type="button" onClick={onCancel}>Cancel</button></div><div className="field-group"><label htmlFor={`${id}-name`}>Tenant name</label><input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={Boolean(errors.name)} /><FieldError id={`${id}-name-error`}>{errors.name}</FieldError></div><label className="checkbox-label"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I confirm this repair against the current landlord report and passing inspection.</label><FieldError id={`${id}-checked-error`}>{errors.checked}</FieldError><button className="primary-button save-inspection" type="submit">Confirm repair</button></form>
 }
 
-function statusClass(status: CommitmentStatus) {
-  return `status status--${status.toLowerCase().replaceAll(' ', '-')}`
+function ObjectionForm({ state, existing, onSave, onCancel }: { state: WorkflowState, existing?: Objection, onSave: (next: WorkflowState) => void, onCancel: () => void }) {
+  const id = useId(); const [name, setName] = useState(existing?.tenantName ?? ''), [selected, setSelected] = useState(existing?.commitmentIds ?? []), [reason, setReason] = useState(existing?.reason ?? ''), [errors, setErrors] = useState<Errors>({})
+  const submit = (event: FormEvent) => { event.preventDefault(); const next: Errors = {}; if (!name.trim()) next.name = 'Enter the tenant’s name.'; if (!selected.length) next.commitments = 'Choose at least one affected commitment.'; if (!reason.trim()) next.reason = 'Enter the reason for the objection.'; if (Object.keys(next).length) return setErrors(next); onSave(saveObjection(state, { id: existing?.id ?? `objection-${Date.now()}`, tenantName: name.trim(), commitmentIds: selected, reason: reason.trim() }, new Date().toISOString())) }
+  return <form className="objection-form" onSubmit={submit} noValidate aria-labelledby={`${id}-title`}><div className="inspection-form-heading"><div><p className="form-kicker">{existing ? 'Edit open objection' : 'Raise an objection'}</p><h3 id={`${id}-title`}>Affected commitments</h3></div><button className="text-button" type="button" onClick={onCancel}>Cancel</button></div><div className="field-group"><label htmlFor={`${id}-name`}>Tenant name</label><input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={Boolean(errors.name)} /><FieldError id={`${id}-name-error`}>{errors.name}</FieldError></div><fieldset className="field-group objection-options"><legend>Affected commitment(s)</legend>{sampleRental.commitments.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, item.id] : selected.filter((value) => value !== item.id))} /> {item.title}</label>)}<FieldError id={`${id}-commitments-error`}>{errors.commitments}</FieldError></fieldset><div className="field-group"><label htmlFor={`${id}-reason`}>Reason</label><textarea id={`${id}-reason`} rows={4} value={reason} onChange={(e) => setReason(e.target.value)} aria-invalid={Boolean(errors.reason)} /><FieldError id={`${id}-reason-error`}>{errors.reason}</FieldError></div><button className="primary-button" type="submit">Save objection</button></form>
 }
 
-function resultClass(result: InspectionResult) {
-  return `inspection-result inspection-result--${result}`
-}
-
-function todayIso() {
-  const today = new Date()
-  const offset = today.getTimezoneOffset() * 60_000
-  return new Date(today.getTime() - offset).toISOString().slice(0, 10)
-}
-
-function formatInspectionDate(date: string) {
-  return new Intl.DateTimeFormat('en-NG', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
-}
-
-function InspectionForm({ commitment, existing, onSave, onCancel }: {
-  commitment: PropertyCommitment
-  existing?: InspectionRecord
-  onSave: (record: InspectionRecord) => void
-  onCancel: () => void
-}) {
-  const formId = useId()
-  const [values, setValues] = useState<FormValues>({
-    inspectionDate: existing?.inspectionDate ?? '',
-    inspectorName: existing?.inspectorName ?? '',
-    result: existing?.result ?? '',
-    notes: existing?.notes ?? '',
-  })
-  const [errors, setErrors] = useState<FormErrors>({})
-
-  const update = (field: keyof FormValues, value: string) => {
-    setValues((current) => ({ ...current, [field]: value }))
-    setErrors((current) => ({ ...current, [field]: undefined }))
-  }
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const nextErrors: FormErrors = {}
-    if (!values.inspectionDate) nextErrors.inspectionDate = 'Enter an inspection date.'
-    else if (values.inspectionDate > todayIso()) nextErrors.inspectionDate = 'Inspection date cannot be in the future.'
-    if (!values.inspectorName.trim()) nextErrors.inspectorName = 'Enter the inspector’s name.'
-    if (!values.result) nextErrors.result = 'Choose an inspection result.'
-    if (!values.notes.trim()) nextErrors.notes = 'Enter inspection notes.'
-
-    if (Object.keys(nextErrors).length > 0) {
-      setErrors(nextErrors)
-      return
-    }
-
-    onSave({
-      commitmentId: commitment.id,
-      inspectionDate: values.inspectionDate,
-      inspectorName: values.inspectorName.trim(),
-      result: values.result as InspectionResult,
-      notes: values.notes.trim(),
-      updatedAt: new Date().toISOString(),
-    })
-  }
-
-  return (
-    <form className="inspection-form" onSubmit={submit} noValidate aria-labelledby={`${formId}-title`}>
-      <div className="inspection-form-heading">
-        <div>
-          <p className="form-kicker">{existing ? 'Edit inspection' : 'Record inspection'}</p>
-          <h4 id={`${formId}-title`}>{commitment.title}</h4>
-        </div>
-        <button className="text-button" type="button" onClick={onCancel}>Cancel</button>
-      </div>
-      <div className="criteria-panel"><span>Acceptance criteria</span><p>{commitment.acceptanceCriteria}</p></div>
-      <div className="form-grid">
-        <div className="field-group">
-          <label htmlFor={`${formId}-date`}>Inspection date</label>
-          <input id={`${formId}-date`} type="date" value={values.inspectionDate} max={todayIso()} onChange={(event) => update('inspectionDate', event.target.value)} aria-invalid={Boolean(errors.inspectionDate)} aria-describedby={errors.inspectionDate ? `${formId}-date-error` : undefined} />
-          {errors.inspectionDate && <p className="field-error" id={`${formId}-date-error`}>{errors.inspectionDate}</p>}
-        </div>
-        <div className="field-group">
-          <label htmlFor={`${formId}-name`}>Inspector name</label>
-          <input id={`${formId}-name`} type="text" value={values.inspectorName} onChange={(event) => update('inspectorName', event.target.value)} aria-invalid={Boolean(errors.inspectorName)} aria-describedby={errors.inspectorName ? `${formId}-name-error` : undefined} />
-          {errors.inspectorName && <p className="field-error" id={`${formId}-name-error`}>{errors.inspectorName}</p>}
-        </div>
-        <fieldset className="field-group result-fieldset" aria-describedby={errors.result ? `${formId}-result-error` : undefined}>
-          <legend>Result</legend>
-          <div className="radio-options">
-            {(Object.entries(resultLabels) as [InspectionResult, string][]).map(([value, label]) => (
-              <label key={value}><input type="radio" name={`${formId}-result`} value={value} checked={values.result === value} onChange={() => update('result', value)} /> <span>{label}</span></label>
-            ))}
-          </div>
-          {errors.result && <p className="field-error" id={`${formId}-result-error`}>{errors.result}</p>}
-        </fieldset>
-        <div className="field-group notes-field">
-          <label htmlFor={`${formId}-notes`}>Inspection notes</label>
-          <textarea id={`${formId}-notes`} rows={4} value={values.notes} onChange={(event) => update('notes', event.target.value)} aria-invalid={Boolean(errors.notes)} aria-describedby={errors.notes ? `${formId}-notes-error` : undefined} />
-          {errors.notes && <p className="field-error" id={`${formId}-notes-error`}>{errors.notes}</p>}
-        </div>
-      </div>
-      <button className="primary-button save-inspection" type="submit">Save inspection</button>
-    </form>
-  )
+function HandoverForm({ state, commitmentIds, onSave }: { state: WorkflowState, commitmentIds: string[], onSave: (next: WorkflowState) => void }) {
+  const id = useId(); const [name, setName] = useState(''), [checked, setChecked] = useState(false), [errors, setErrors] = useState<Errors>({})
+  const submit = (event: FormEvent) => { event.preventDefault(); const next: Errors = {}; if (!name.trim()) next.name = 'Enter the tenant’s name.'; if (!checked) next.checked = 'Confirm that you reviewed every current record.'; if (Object.keys(next).length) return setErrors(next); onSave(acceptHandover(state, commitmentIds, name.trim(), new Date().toISOString())) }
+  return <form className="handover-form" onSubmit={submit} noValidate><div className="field-group"><label htmlFor={`${id}-name`}>Tenant name</label><input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} aria-invalid={Boolean(errors.name)} /><FieldError id={`${id}-name-error`}>{errors.name}</FieldError></div><label className="checkbox-label checkbox-label--dark"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I reviewed every current completion report, inspection and tenant confirmation.</label><FieldError id={`${id}-checked-error`}>{errors.checked}</FieldError><button className="handover-accept-button" type="submit">Accept handover — demo</button></form>
 }
 
 export default function SampleRentalPage({ onBackHome }: SampleRentalPageProps) {
   const commitmentIds = useMemo(() => sampleRental.commitments.map(({ id }) => id), [])
-  const [records, setRecords] = useState<InspectionRecords>(() => {
-    try { return parseStoredInspections(window.localStorage.getItem(INSPECTION_STORAGE_KEY), commitmentIds) }
-    catch { return {} }
-  })
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [storageMessage, setStorageMessage] = useState('')
-  const summary = calculateHandoverSummary(commitmentIds, records)
+  const [role, setRole] = useState<DemoRole>('landlord')
+  const [state, setState] = useState<WorkflowState>(() => { try { return loadWorkflowState(localStorage.getItem(WORKFLOW_STORAGE_KEY), localStorage.getItem(INSPECTION_STORAGE_KEY), commitmentIds) } catch { return emptyWorkflowState() } })
+  const [openForm, setOpenForm] = useState<string | null>(null), [showObjection, setShowObjection] = useState(false), [editingObjection, setEditingObjection] = useState<Objection | undefined>(), [storageError, setStorageError] = useState('')
+  useEffect(() => { try { localStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(state)); setStorageError('') } catch { setStorageError('This browser could not save the demo workflow.') } }, [state])
+  const update = (next: WorkflowState) => { setState(next); setOpenForm(null); setShowObjection(false); setEditingObjection(undefined) }
+  const activeAcceptance = currentHandoverAcceptance(state, commitmentIds), allConfirmed = canAcceptHandover(state, commitmentIds)
+  const reset = () => { if (!window.confirm('Reset all RENTA demo inspections, completion reports, objections, confirmations, handover acceptances and activity history? This clears only RENTA demo data.')) return; try { clearWorkflowStorage(localStorage) } catch { /* state still resets */ } setState(emptyWorkflowState()); setOpenForm(null) }
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(INSPECTION_STORAGE_KEY, JSON.stringify(records))
-      setStorageMessage('')
-    } catch {
-      setStorageMessage('This browser could not save the demo inspections. Your current entries may not survive a refresh.')
-    }
-  }, [records])
-
-  const saveInspection = (record: InspectionRecord) => {
-    setRecords((current) => ({ ...current, [record.commitmentId]: record }))
-    setEditingId(null)
-  }
-
-  const resetInspections = () => {
-    if (!window.confirm('Reset all RENTA demo inspection records? This cannot be undone.')) return
-    try { clearStoredInspections(window.localStorage) } catch { /* state still resets */ }
-    setRecords({})
-    setEditingId(null)
-  }
-
-  return (
-    <div className="rental-page">
-      <section className="rental-intro" aria-labelledby="sample-title">
-        <div><p className="demo-label">Demo data — fictional property and parties</p><h1 id="sample-title">{sampleRental.property}</h1><p className="rental-location">{sampleRental.location}</p></div>
-        <button className="secondary-button" type="button" onClick={onBackHome}>Back to home</button>
-      </section>
-
-      <aside className="demo-notice" aria-label="Demo record notice"><strong>{sampleRental.approvalStatus}</strong><p>This is a sample agreement for demonstration. It has not been independently verified.</p></aside>
-      <aside className="browser-notice"><strong>Demo only.</strong> Records are saved in this browser and are not shared or independently verified. Use fictional details.</aside>
-      {storageMessage && <p className="storage-error" role="alert">{storageMessage}</p>}
-
-      <section className="record-section overview-section" aria-labelledby="overview-title">
-        <div className="record-section-heading"><p>Rental overview</p><h2 id="overview-title">Parties and handover</h2></div>
-        <dl className="details-grid"><div><dt>Tenant</dt><dd>{sampleRental.tenant}</dd></div><div><dt>Landlord</dt><dd>{sampleRental.landlord}</dd></div><div><dt>Authorised agent</dt><dd>{sampleRental.agent}</dd></div><div><dt>Planned handover</dt><dd>{sampleRental.plannedHandover}</dd></div></dl>
-      </section>
-
-      <section className="record-section" aria-labelledby="charges-title">
-        <div className="record-section-heading"><p>Financial record</p><h2 id="charges-title">Agreed charges</h2></div>
-        <div className="charges-card"><dl className="charges-list">{sampleRental.charges.map((charge) => <div key={charge.label}><dt>{charge.label}</dt><dd>{currencyFormatter.format(charge.amount)}</dd></div>)}<div className="charges-total"><dt>Total upfront cost</dt><dd>{currencyFormatter.format(totalUpfrontCost)}</dd></div></dl></div>
-      </section>
-
-      <section className="record-section" aria-labelledby="commitments-title">
-        <div className="record-section-heading"><p>Before handover</p><h2 id="commitments-title">Property commitments</h2></div>
-        <div className="commitments-list">
-          {sampleRental.commitments.map((commitment, index) => {
-            const inspection = records[commitment.id]
-            const isEditing = editingId === commitment.id
-            return (
-              <article className="commitment-card" key={commitment.id}>
-                <div className="commitment-topline"><span className="commitment-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><span className={statusClass(commitment.status)} aria-label={`Reported work status: ${commitment.status}`}>{commitment.status}</span></div>
-                <h3>{commitment.title}</h3>
-                <dl><div><dt>Deadline</dt><dd>{commitment.deadline}</dd></div><div><dt>Acceptance criteria</dt><dd>{commitment.acceptanceCriteria}</dd></div></dl>
-                {!isEditing && <button className="record-button" type="button" onClick={() => setEditingId(commitment.id)}>{inspection ? 'Edit inspection' : 'Record inspection'}</button>}
-                {isEditing && <InspectionForm commitment={commitment} existing={inspection} onSave={saveInspection} onCancel={() => setEditingId(null)} />}
-                {inspection && !isEditing && (
-                  <section className="saved-inspection" aria-label={`Inspection record for ${commitment.title}`}>
-                    <div className="saved-inspection-heading"><p>Inspection record</p><span className={resultClass(inspection.result)}>{resultLabels[inspection.result]}</span></div>
-                    <dl><div><dt>Inspection date</dt><dd>{formatInspectionDate(inspection.inspectionDate)}</dd></div><div><dt>Inspector</dt><dd>{inspection.inspectorName}</dd></div><div className="inspection-notes"><dt>Notes</dt><dd>{inspection.notes}</dd></div></dl>
-                  </section>
-                )}
-              </article>
-            )
-          })}
-        </div>
-        <p className="inspection-note"><strong>Reported complete</strong> records the reporting party’s update only. The commitment still requires inspection and acceptance.</p>
-      </section>
-
-      <section className="record-section handover-section" aria-labelledby="handover-title">
-        <div className="record-section-heading"><p>Calculated from inspections</p><h2 id="handover-title">Handover summary</h2></div>
-        <div>
-          <div className="handover-decision"><span>Current decision</span><strong aria-live="polite">{summary.decision}</strong></div>
-          <div className="summary-counts" aria-label="Inspection result counts"><div><strong>{summary.passed}</strong><span>Passed</span></div><div><strong>{summary.failed}</strong><span>Failed</span></div><div><strong>{summary.unassessed}</strong><span>Unassessed</span></div></div>
-          <p className="acceptance-note">A passing inspection does not accept the property or complete handover. Formal acceptance will be a later step.</p>
-          <button className="reset-button" type="button" onClick={resetInspections} disabled={Object.keys(records).length === 0}>Reset demo inspections</button>
-        </div>
-      </section>
-    </div>
-  )
+  return <div className="rental-page">
+    <section className="rental-intro" aria-labelledby="sample-title"><div><p className="demo-label">Demo data — fictional property and parties</p><h1 id="sample-title">{sampleRental.property}</h1><p className="rental-location">{sampleRental.location}</p></div><button className="secondary-button" type="button" onClick={onBackHome}>Back to home</button></section>
+    <aside className="demo-notice"><strong>{sampleRental.approvalStatus}</strong><p>This sample agreement has not been independently verified.</p></aside>
+    <aside className="browser-notice"><strong>Demo only.</strong> Records and history are editable local browser data, not a secure audit trail. They are not shared or independently verified. Use fictional details.</aside>{storageError && <p role="alert" className="storage-error">{storageError}</p>}
+    <section className="role-panel" aria-labelledby="role-title"><div><p className="form-kicker">Role simulation</p><h2 id="role-title">Viewing demo as: <span>{role === 'landlord' ? 'Landlord' : 'Tenant'}</span></h2><p>This switch only changes the demo actions shown. It is not authentication.</p></div><div className="role-switch" role="group" aria-label="Viewing demo as"><button type="button" aria-pressed={role === 'landlord'} onClick={() => { setRole('landlord'); setOpenForm(null) }}>Landlord</button><button type="button" aria-pressed={role === 'tenant'} onClick={() => { setRole('tenant'); setOpenForm(null) }}>Tenant</button></div></section>
+    <section className="record-section overview-section"><div className="record-section-heading"><p>Rental overview</p><h2>Parties and handover</h2></div><dl className="details-grid"><div><dt>Tenant</dt><dd>{sampleRental.tenant}</dd></div><div><dt>Landlord</dt><dd>{sampleRental.landlord}</dd></div><div><dt>Authorised agent</dt><dd>{sampleRental.agent}</dd></div><div><dt>Planned handover</dt><dd>{sampleRental.plannedHandover}</dd></div></dl></section>
+    <section className="record-section"><div className="record-section-heading"><p>Financial record</p><h2>Agreed charges</h2></div><div className="charges-card"><dl className="charges-list">{sampleRental.charges.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{currency.format(item.amount)}</dd></div>)}<div className="charges-total"><dt>Total upfront cost</dt><dd>{currency.format(totalUpfrontCost)}</dd></div></dl></div></section>
+    <section className="record-section"><div className="record-section-heading"><p>Two-party review</p><h2>Property commitments</h2></div><div className="commitments-list">{sampleRental.commitments.map((commitment, index) => {
+      const report = state.completionReports[commitment.id], inspection = state.inspections[commitment.id], status = agreementStatus(state, commitment.id)
+      return <article className="commitment-card" key={commitment.id}><div className="commitment-topline"><span className="commitment-number">{String(index + 1).padStart(2, '0')}</span><span className={agreementClass(status)}>{status}</span></div><h3>{commitment.title}</h3><dl><div><dt>Deadline</dt><dd>{commitment.deadline}</dd></div><div><dt>Acceptance criteria</dt><dd>{commitment.acceptanceCriteria}</dd></div></dl><div className="status-stack"><div><span>Original work status</span><strong className={statusClass(commitment.status)}>{commitment.status}</strong></div><div><span>Landlord report</span><strong>{report ? `Reported complete · v${report.version}` : 'Not submitted'}</strong></div><div><span>Inspection</span><strong>{inspection ? `${resultLabels[inspection.result]} · v${inspection.version}` : 'Not submitted'}</strong></div><div><span>Agreement</span><strong>{status}</strong></div></div>
+      {report && <div className="record-summary"><p><strong>Landlord:</strong> {report.landlordName} · {formatDate(report.completionDate)}</p><p>{report.notes}</p><small>Saved {formatTime(report.updatedAt)}</small></div>}{inspection && <div className="record-summary"><p><strong>Inspection by:</strong> {inspection.inspectorName} · {formatDate(inspection.inspectionDate)}</p><p>{inspection.notes}</p><small>Saved {formatTime(inspection.updatedAt)}</small></div>}
+      {role === 'landlord' && openForm !== `report-${commitment.id}` && <button className="record-button" onClick={() => setOpenForm(`report-${commitment.id}`)}>{report ? 'Edit completion report' : 'Report work complete'}</button>}{role === 'landlord' && openForm === `report-${commitment.id}` && <CompletionForm commitment={commitment} state={state} onSave={update} onCancel={() => setOpenForm(null)} />}
+      {role === 'tenant' && openForm !== `inspection-${commitment.id}` && <button className="record-button" onClick={() => setOpenForm(`inspection-${commitment.id}`)}>{inspection ? 'Edit inspection' : 'Record inspection'}</button>}{role === 'tenant' && openForm === `inspection-${commitment.id}` && <InspectionForm commitment={commitment} state={state} onSave={update} onCancel={() => setOpenForm(null)} />}
+      {role === 'tenant' && canConfirmCommitment(state, commitment.id) && status !== 'Confirmed by both parties' && openForm !== `confirm-${commitment.id}` && <button className="confirm-button" onClick={() => setOpenForm(`confirm-${commitment.id}`)}>Confirm repair</button>}{role === 'tenant' && openForm === `confirm-${commitment.id}` && <ConfirmationForm commitment={commitment} state={state} onSave={update} onCancel={() => setOpenForm(null)} />}{role === 'tenant' && hasOpenObjection(state, commitment.id) && <p className="blocked-note">An open objection blocks confirmation for this commitment.</p>}</article>
+    })}</div></section>
+    {role === 'tenant' && <section className="record-section objections-section"><div className="record-section-heading"><p>Tenant concerns</p><h2>Open objections</h2></div><div>{state.objections.length === 0 && !showObjection && <p>No open objections.</p>}{state.objections.map((item) => <article className="objection-card" key={item.id}><div><strong>Objection open</strong><span>{item.commitmentIds.length} commitment(s)</span></div><p>{item.reason}</p><small>{item.tenantName} · Updated {formatTime(item.updatedAt)}</small><button className="text-button" onClick={() => { setEditingObjection(item); setShowObjection(true) }}>Edit objection</button></article>)}{!showObjection && <button className="record-button" onClick={() => setShowObjection(true)}>Raise an objection</button>}{showObjection && <ObjectionForm state={state} existing={editingObjection} onSave={update} onCancel={() => { setShowObjection(false); setEditingObjection(undefined) }} />}</div></section>}
+    <section className="record-section handover-section"><div className="record-section-heading"><p>Explicit tenant decision</p><h2>Handover review</h2></div><div><div className="handover-decision"><span>Current status</span><strong>{activeAcceptance ? 'Handover accepted — demo record' : allConfirmed ? 'Ready for tenant acceptance' : hasOpenObjection(state) ? 'Blocked by open objection' : 'Not ready for acceptance'}</strong></div><p className="acceptance-note">Acceptance does not authenticate a signature, confirm key transfer or authorise payment.</p>{role === 'tenant' && allConfirmed && !activeAcceptance && <HandoverForm state={state} commitmentIds={commitmentIds} onSave={update} />}{activeAcceptance && <div className="accepted-record"><strong>Handover accepted — demo record</strong><span>{activeAcceptance.tenantName} · {formatTime(activeAcceptance.createdAt)}</span></div>}{state.handoverAcceptances.length > 0 && <details className="history-details"><summary>Previous handover acceptance records ({state.handoverAcceptances.length})</summary>{state.handoverAcceptances.map((item) => <p key={item.id}>{item.tenantName} · {formatTime(item.createdAt)}{activeAcceptance?.id === item.id ? ' · Current' : ' · Historical'}</p>)}</details>}</div></section>
+    <section className="record-section activity-section"><div className="record-section-heading"><p>Local transparency</p><h2>Activity history</h2></div><div>{state.activity.length ? <ol className="activity-list">{[...state.activity].reverse().map((event) => <li key={event.id}><strong>{event.action}</strong><span>{event.actorRole} · {event.actorName}{event.commitmentId ? ` · ${sampleRental.commitments.find((item) => item.id === event.commitmentId)?.title}` : ''}</span><time>{formatTime(event.timestamp)}</time></li>)}</ol> : <p>No demo activity recorded yet.</p>}<p className="history-warning">This browser-stored demo history is editable local data, not a secure audit trail.</p><button className="reset-button reset-button--light" type="button" onClick={reset} disabled={!state.activity.length && !state.objections.length && !state.handoverAcceptances.length}>Reset all RENTA demo records</button></div></section>
+  </div>
 }
