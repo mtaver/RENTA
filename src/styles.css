@@ -258,6 +258,28 @@ dd { margin: 7px 0 0; color: var(--ink); font-size: 1.05rem; font-weight: 700; }
 .charge-history summary { cursor: pointer; font-weight: 700; }
 .charge-history p { color: #5f726c; font-size: .88rem; }
 .add-charge-button { margin-top: 22px; }
+.review-list { display: grid; gap: 20px; }
+.review-card { padding: 26px; border: 1px solid #d6b09e; border-radius: 10px; background: #f8eee8; }
+.review-topline, .review-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.review-topline span { color: #a74920; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.review-topline strong { color: #8f241c; font-size: .84rem; }
+.review-card h3 { margin: 20px 0 10px; font-size: 1.2rem; }
+.review-revisions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 18px; border-top: 1px solid #d6b09e; }
+.review-revisions div { padding: 14px 14px 8px 0; }
+.review-revisions dt { color: #6c514d; font-size: .8rem; font-weight: 700; }
+.review-revisions dd { margin: 6px 0 0; overflow-wrap: anywhere; font-size: .85rem; line-height: 1.5; }
+.corrective-summary { margin-top: 18px; padding: 18px; border-left: 3px solid #a74920; background: white; }
+.corrective-summary p { margin: 8px 0; }
+.corrective-summary small { color: #6c514d; }
+.resolution-ready { margin-top: 18px; padding: 14px; color: #29533f; background: #d8eadc; border-radius: 6px; }
+.review-actions { justify-content: flex-start; flex-wrap: wrap; }
+.review-actions .confirm-button { margin: 24px 0 0; }
+.objection-edit { margin: 10px 0 18px; }
+.review-history { margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: 8px; }
+.review-history summary { cursor: pointer; font-weight: 700; }
+.review-history ol { display: grid; gap: 14px; margin: 18px 0 0; padding: 0; list-style: none; }
+.review-history li { display: grid; gap: 5px; padding-top: 14px; border-top: 1px solid var(--line); }
+.review-history span, .review-history time { color: #5f726c; font-size: .84rem; overflow-wrap: anywhere; }
 
 footer { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0; display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid var(--line); color: #536760; font-size: .9rem; }
 footer p { margin-bottom: 0; }
@@ -285,6 +307,7 @@ footer p { margin-bottom: 0; }
   .charge-totals div { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.2); }
   .charge-totals div:last-child { border-bottom: 0; }
   .charge-totals span { min-height: 0; }
+  .review-revisions { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 540px) {
@@ -324,6 +347,7 @@ footer p { margin-bottom: 0; }
   .evidence-grid, .historical-evidence { grid-template-columns: 1fr; }
   .charge-title, .charge-card .commitment-topline { align-items: flex-start; flex-direction: column; }
   .charge-meta { grid-template-columns: 1fr; }
+  .review-topline { align-items: flex-start; flex-direction: column; }
   footer { width: calc(100% - 32px); flex-direction: column; }
 }
 

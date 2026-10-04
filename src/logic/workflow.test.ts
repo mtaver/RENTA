@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   acceptHandover, addEvidence, agreementStatus, canAcceptHandover, canConfirmCommitment, clearWorkflowStorage,
-  confirmCommitment, currentHandoverAcceptance, editEvidence, emptyWorkflowState, loadWorkflowState,
-  decideCharge, removeCurrentEvidence, saveChargeProposal, saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
+  closeObjection, confirmCommitment, confirmObjectionResolution, currentHandoverAcceptance, currentTenantResolution, editEvidence, emptyWorkflowState, hasOpenObjection, loadWorkflowState,
+  decideCharge, recordCorrectiveAction, removeCurrentEvidence, saveChargeProposal, saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
 } from './workflow.ts'
 import { INSPECTION_STORAGE_KEY } from './inspections.ts'
 
@@ -152,6 +152,104 @@ test('schema three migration preserves repairs and makes old acceptance historic
   assert.equal(migrated.inspections.one.result, 'meets')
   assert.equal(migrated.handoverAcceptances[0].chargeSnapshot.length, 0)
   assert.equal(currentHandoverAcceptance(migrated, ['one']), undefined)
+})
+
+function repairObjectionFlow() {
+  let state = confirmCommitment(withInspection(withReport()), 'one', 'Demo Tenant', now)
+  state = saveObjection(state, { id: 'repair-objection', tenantName: 'Demo Tenant', commitmentIds: ['one'], reason: 'Leak remains.' }, '2026-10-04T11:00:00.000Z')
+  return recordCorrectiveAction(state, 'repair', 'repair-objection', 'Demo Reviewer', 'Correction is required.', 'Repair and reinspect the fitting.', '2026-10-10', '2026-10-04T12:00:00.000Z')
+}
+
+function correctedRepair(state = repairObjectionFlow()) {
+  state = saveCompletionReport(state, { commitmentId: 'one', landlordName: 'Demo Landlord', completionDate: '2026-10-04', notes: 'Corrected.' }, '2026-10-04T13:00:00.000Z')
+  return confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
+}
+
+test('corrective action keeps an objection open and handover blocked', () => {
+  const state = repairObjectionFlow()
+  assert.equal(hasOpenObjection(state, 'one'), true)
+  assert.equal(canAcceptHandover(withApprovedCharges(state), ['one']), false)
+})
+
+test('closure requires correction, current tenant consent and reviewer reason', () => {
+  let state = repairObjectionFlow()
+  assert.equal(closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', 'Closed.', '2026-10-04T13:00:00.000Z'), state)
+  state = correctedRepair(state)
+  state = confirmObjectionResolution(state, 'repair', 'repair-objection', 'Demo Tenant', '2026-10-04T15:00:00.000Z')
+  assert.ok(currentTenantResolution(state, 'repair', 'repair-objection'))
+  assert.equal(closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', ' ', '2026-10-04T16:00:00.000Z'), state)
+  state = closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', 'Correction reviewed and accepted.', '2026-10-04T16:00:00.000Z')
+  assert.equal(hasOpenObjection(state, 'one'), false)
+})
+
+test('record changes invalidate pending tenant resolution consent', () => {
+  let state = correctedRepair()
+  state = confirmObjectionResolution(state, 'repair', 'repair-objection', 'Demo Tenant', '2026-10-04T15:00:00.000Z')
+  state = saveInspection(state, { commitmentId: 'one', inspectionDate: '2026-10-04', inspectorName: 'Demo Tenant', result: 'meets', notes: 'Changed after consent.' }, '2026-10-04T16:00:00.000Z')
+  assert.equal(currentTenantResolution(state, 'repair', 'repair-objection'), undefined)
+  assert.equal(closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', 'Cannot close.', '2026-10-04T17:00:00.000Z'), state)
+})
+
+test('reviewer actions cannot substitute for tenant repair confirmation', () => {
+  let state = repairObjectionFlow()
+  state = saveCompletionReport(state, { commitmentId: 'one', landlordName: 'Demo Landlord', completionDate: '2026-10-04', notes: 'Corrected.' }, '2026-10-04T13:00:00.000Z')
+  state = confirmObjectionResolution(state, 'repair', 'repair-objection', 'Demo Reviewer', '2026-10-04T14:00:00.000Z')
+  assert.equal(state.tenantResolutionConfirmations.length, 0)
+  assert.equal(state.objectionClosures.length, 0)
+})
+
+test('multiple objections remain independently blocking', () => {
+  let state = repairObjectionFlow()
+  state = saveObjection(state, { id: 'second-objection', tenantName: 'Demo Tenant', commitmentIds: ['two'], reason: 'Window remains unsafe.' }, '2026-10-04T12:30:00.000Z')
+  state = correctedRepair(state)
+  state = confirmObjectionResolution(state, 'repair', 'repair-objection', 'Demo Tenant', '2026-10-04T15:00:00.000Z')
+  state = closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', 'First correction accepted.', '2026-10-04T16:00:00.000Z')
+  assert.equal(hasOpenObjection(state), true)
+  assert.equal(hasOpenObjection(state, 'one'), false)
+  assert.equal(hasOpenObjection(state, 'two'), true)
+})
+
+test('closing an objection does not automatically accept handover', () => {
+  let state = correctedRepair()
+  state = confirmObjectionResolution(state, 'repair', 'repair-objection', 'Demo Tenant', '2026-10-04T15:00:00.000Z')
+  state = closeObjection(state, 'repair', 'repair-objection', 'Demo Reviewer', 'Correction accepted.', '2026-10-04T16:00:00.000Z')
+  state = withApprovedCharges(state)
+  assert.equal(canAcceptHandover(state, ['one']), true)
+  assert.equal(state.handoverAcceptances.length, 0)
+})
+
+test('schema four migration adds empty review records without losing workflow data', () => {
+  const source = withInspection(withReport())
+  const migrated = loadWorkflowState(JSON.stringify({ ...source, schemaVersion: 4, correctiveActions: undefined, tenantResolutionConfirmations: undefined, objectionClosures: undefined, objectionHistory: undefined }), null, ids)
+  assert.equal(migrated.inspections.one.result, 'meets')
+  assert.deepEqual(migrated.correctiveActions, [])
+  assert.deepEqual(migrated.tenantResolutionConfirmations, [])
+  assert.deepEqual(migrated.objectionClosures, [])
+})
+
+test('repair and charge objections can be independently corrected and closed before explicit handover', () => {
+  let state = withApprovedCharges(confirmCommitment(withInspection(withReport()), 'one', 'Demo Tenant', now))
+  state = saveObjection(state, { id: 'repair-flow', tenantName: 'Demo Tenant', commitmentIds: ['one'], reason: 'Repair needs correction.' }, '2026-10-04T11:00:00.000Z')
+  const rent = state.chargeProposals['annual-rent']
+  state = saveChargeProposal(state, { id: rent.id, name: rent.name, amountKobo: rent.amountKobo + 100, purpose: rent.purpose, refundable: rent.refundable, landlordName: 'Demo Landlord' }, '2026-10-04T11:10:00.000Z')
+  state = decideCharge(state, rent.id, 'objected', 'Demo Tenant', 'Charge needs correction.', '2026-10-04T11:20:00.000Z')
+  const chargeObjection = state.chargeDecisions.at(-1)!
+  state = recordCorrectiveAction(state, 'repair', 'repair-flow', 'Demo Reviewer', 'Repair correction required.', 'Complete and reinspect the repair.', '2026-10-10', '2026-10-04T12:00:00.000Z')
+  state = recordCorrectiveAction(state, 'charge', chargeObjection.id, 'Demo Reviewer', 'Charge correction required.', 'Revise the charge explanation and amount.', '2026-10-10', '2026-10-04T12:10:00.000Z')
+  assert.equal(canAcceptHandover(state, ['one']), false)
+
+  state = saveCompletionReport(state, { commitmentId: 'one', landlordName: 'Demo Landlord', completionDate: '2026-10-04', notes: 'Corrected repair.' }, '2026-10-04T13:00:00.000Z')
+  state = confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T13:10:00.000Z')
+  state = saveChargeProposal(state, { id: rent.id, name: rent.name, amountKobo: rent.amountKobo, purpose: 'Corrected charge explanation.', refundable: rent.refundable, landlordName: 'Demo Landlord' }, '2026-10-04T13:20:00.000Z')
+  state = decideCharge(state, rent.id, 'approved', 'Demo Tenant', undefined, '2026-10-04T13:30:00.000Z')
+  state = confirmObjectionResolution(state, 'repair', 'repair-flow', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
+  state = confirmObjectionResolution(state, 'charge', chargeObjection.id, 'Demo Tenant', '2026-10-04T14:10:00.000Z')
+  state = closeObjection(state, 'repair', 'repair-flow', 'Demo Reviewer', 'Repair correction verified.', '2026-10-04T15:00:00.000Z')
+  state = closeObjection(state, 'charge', chargeObjection.id, 'Demo Reviewer', 'Charge correction verified.', '2026-10-04T15:10:00.000Z')
+  assert.equal(canAcceptHandover(state, ['one']), true)
+  assert.equal(state.handoverAcceptances.length, 0)
+  state = acceptHandover(state, ['one'], 'Demo Tenant', '2026-10-04T16:00:00.000Z')
+  assert.ok(currentHandoverAcceptance(state, ['one']))
 })
 
 test('reset clears only associated RENTA demo records', () => {

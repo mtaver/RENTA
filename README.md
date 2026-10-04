@@ -37,10 +37,14 @@ npm test
 - Separate proposed, currently approved and refundable-deposit totals
 - Three property commitments with deadlines, acceptance criteria and accessible status labels
 - A browser-only demo inspection workflow with required-field and future-date validation
-- A simulated landlord/tenant role switch (not authentication)
+- A simulated landlord, tenant and reviewer role switch (not authentication or independent review)
 - Versioned landlord completion reports and tenant inspections
 - Explicit tenant repair confirmation tied to the current report and inspection revisions
-- Editable open objections that block affected confirmations and handover acceptance
+- Editable repair objections and version-specific charge objections that remain independently blocking until corrected and closed
+- Revision-bound reviewer corrective-action records with required actions, deadlines and reasons
+- Fresh tenant repair confirmation or charge approval followed by explicit tenant objection-resolution confirmation
+- Reviewer closure only while the tenant’s resolution consent still matches the corrected current revisions
+- Preserved objection edits, reviewer decisions, correction references, tenant resolution confirmations and closure records in chronological history
 - Explicit demo handover acceptance only after all commitments and current charges are approved by both parties and no objection is open
 - Preserved historical confirmations and handover acceptances when records change
 - Local activity history for reports, inspections, confirmations, objections and acceptance
@@ -49,7 +53,7 @@ npm test
 - Photo blobs stored in a RENTA-only IndexedDB database; workflow metadata remains linked to versioned inspection records
 - Evidence edits and removals create inspection revisions, invalidating current confirmation and handover acceptance while historical evidence references remain available
 - Accessible thumbnails, larger photo views and confirmed removal
-- A scoped reset action that removes only the associated RENTA demo records and IndexedDB photos, with visible partial-failure reporting
+- A scoped reset action that removes only associated RENTA workflow, objection-review records and IndexedDB photos, with visible partial-failure reporting
 - Safe migration of earlier workflow data; handovers that predate charge approvals remain visible only as historical records
 - Focused automated tests for charge amount validation, exact totals, versioned decisions, objection blocking, migration, workflow prerequisites, evidence, invalidation and reset behaviour
 - Reusable typed demo data in `src/data/sampleRental.ts`
@@ -57,7 +61,7 @@ npm test
 - Straightforward responsive CSS, page metadata and a custom favicon
 - Production build and local preview scripts
 
-The sample property and parties are fictional. Demo records stay in the current browser and are not shared or independently verified. The role switch is not authentication, and local history is not a secure audit trail. Handover acceptance does not authenticate a signature, confirm key transfer or authorise payment.
+The sample property and parties are fictional. Demo records stay in the current browser and are not shared or independently verified. The role switch is not authentication, the reviewer is simulated rather than independent, and local history is not a secure audit trail. A reviewer cannot approve charges, confirm repairs or accept handover for a tenant. Handover acceptance does not authenticate a signature, confirm key transfer or authorise payment.
 
 The three initial charge figures are sample proposals, not recorded approvals. A landlord must explicitly submit each current version and a tenant must explicitly approve it before it contributes to the mutually approved total or handover readiness. Charge approval records document agreement only; they do not represent payment.
 
@@ -71,18 +75,18 @@ The three initial charge figures are sample proposals, not recorded approvals. A
 - Tenant inspection records
 - Landlord completion reports
 - Two-party repair confirmation using versioned records
-- Tenant objections without reviewer resolution
+- Tenant objections with revision-bound corrective action, tenant resolution consent and simulated reviewer closure
 - Conditional tenant handover acceptance
 - Browser-local activity and transparency history
 
 ### Planned
 
-1. Reviewer decisions and objection resolution
-2. Creating and managing rental records
-3. User accounts, authenticated roles and shared storage
+1. Creating and managing rental records
+2. User accounts, authenticated roles and shared storage
+3. Independent reviewer organisations and authenticated review assignment
 4. Landlord property listings
 5. Tenant search and rental requests
 6. Mutual ratings, comments, replies and reporting
 7. Downloadable handover reports
 
-Accounts, a backend, cloud uploads, listings, ratings, reviewer resolution, payments and production verification services are intentionally outside the current step.
+Accounts, a backend, cloud uploads, listings, ratings, independent production review, payments and production verification services are intentionally outside the current step.
