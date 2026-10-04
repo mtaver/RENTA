@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
   acceptHandover, addEvidence, agreementStatus, canAcceptHandover, canConfirmCommitment, clearWorkflowStorage,
   confirmCommitment, currentHandoverAcceptance, editEvidence, emptyWorkflowState, loadWorkflowState,
-  removeCurrentEvidence, saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
+  decideCharge, removeCurrentEvidence, saveChargeProposal, saveCompletionReport, saveInspection, saveObjection, WORKFLOW_STORAGE_KEY,
 } from './workflow.ts'
 import { INSPECTION_STORAGE_KEY } from './inspections.ts'
 
@@ -16,6 +16,15 @@ function withReport(state = emptyWorkflowState(), id = 'one') {
 
 function withInspection(state = emptyWorkflowState(), id = 'one', result: 'meets' | 'does-not-meet' | 'unable' = 'meets') {
   return saveInspection(state, { commitmentId: id, inspectionDate: '2026-10-03', inspectorName: 'Demo Tenant', result, notes: 'Checked.' }, now)
+}
+
+function withApprovedCharges(state: ReturnType<typeof emptyWorkflowState>) {
+  let next = state
+  for (const charge of Object.values(next.chargeProposals)) {
+    next = saveChargeProposal(next, { id: charge.id, name: charge.name, amountKobo: charge.amountKobo, purpose: charge.purpose, refundable: charge.refundable, landlordName: 'Demo Landlord' }, now)
+    next = decideCharge(next, charge.id, 'approved', 'Demo Tenant', undefined, now)
+  }
+  return next
 }
 
 test('landlord report alone does not confirm a repair', () => {
@@ -44,6 +53,7 @@ test('objections block affected confirmation and handover acceptance', () => {
 test('record edits invalidate confirmations and acceptance without restoring them when values change back', () => {
   let state = withInspection(withReport())
   state = confirmCommitment(state, 'one', 'Demo Tenant', now)
+  state = withApprovedCharges(state)
   state = acceptHandover(state, ['one'], 'Demo Tenant', now)
   assert.ok(currentHandoverAcceptance(state, ['one']))
   const originalNotes = state.completionReports.one.notes
@@ -59,6 +69,7 @@ test('record edits invalidate confirmations and acceptance without restoring the
 test('historical acceptance remains visible after invalidation', () => {
   let state = withInspection(withReport())
   state = confirmCommitment(state, 'one', 'Demo Tenant', now)
+  state = withApprovedCharges(state)
   state = acceptHandover(state, ['one'], 'Demo Tenant', now)
   state = saveInspection(state, { commitmentId: 'one', inspectionDate: '2026-10-03', inspectorName: 'Demo Tenant', result: 'meets', notes: 'Edited.' }, '2026-10-04T13:00:00.000Z')
   assert.equal(currentHandoverAcceptance(state, ['one']), undefined)
@@ -87,6 +98,7 @@ test('removing current evidence preserves historical acceptance references and m
   let state = withInspection(withReport())
   state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Repair', label: 'After repair', mimeType: 'image/webp', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
   state = confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T12:00:00.000Z')
+  state = withApprovedCharges(state)
   state = acceptHandover(state, ['one'], 'Demo Tenant', '2026-10-04T13:00:00.000Z')
   state = removeCurrentEvidence(state, 'photo-1', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
   assert.deepEqual(state.inspections.one.evidenceIds, [])
@@ -98,6 +110,7 @@ test('editing evidence creates a new reference without changing historical metad
   let state = withInspection(withReport())
   state = addEvidence(state, { id: 'photo-1', commitmentId: 'one', description: 'Original description', label: 'Before repair', mimeType: 'image/jpeg', size: 200, createdAt: now }, 'Demo Tenant', '2026-10-04T11:00:00.000Z')
   state = confirmCommitment(state, 'one', 'Demo Tenant', '2026-10-04T12:00:00.000Z')
+  state = withApprovedCharges(state)
   state = acceptHandover(state, ['one'], 'Demo Tenant', '2026-10-04T13:00:00.000Z')
   state = editEvidence(state, 'photo-1', 'photo-2', 'Revised description', 'After repair', 'Demo Tenant', '2026-10-04T14:00:00.000Z')
   assert.deepEqual(state.inspections.one.evidenceIds, ['photo-2'])
@@ -110,6 +123,35 @@ test('valid legacy inspections survive the storage upgrade', () => {
   const state = loadWorkflowState(null, legacy, ids)
   assert.equal(state.inspections.one.result, 'meets')
   assert.equal(state.inspections.one.version, 1)
+})
+
+test('charge objections block handover acceptance', () => {
+  let state = withApprovedCharges(confirmCommitment(withInspection(withReport()), 'one', 'Demo Tenant', now))
+  const rent = state.chargeProposals['annual-rent']
+  state = saveChargeProposal(state, { id: rent.id, name: rent.name, amountKobo: rent.amountKobo, purpose: rent.purpose, refundable: rent.refundable, landlordName: 'Demo Landlord' }, '2026-10-04T11:00:00.000Z')
+  state = decideCharge(state, rent.id, 'objected', 'Demo Tenant', 'Amount needs review.', '2026-10-04T12:00:00.000Z')
+  assert.equal(canAcceptHandover(state, ['one']), false)
+})
+
+test('charge revision invalidates acceptance and changing values back does not restore it', () => {
+  let state = withApprovedCharges(confirmCommitment(withInspection(withReport()), 'one', 'Demo Tenant', now))
+  state = acceptHandover(state, ['one'], 'Demo Tenant', now)
+  const rent = state.chargeProposals['annual-rent']
+  state = saveChargeProposal(state, { id: rent.id, name: rent.name, amountKobo: rent.amountKobo + 100, purpose: rent.purpose, refundable: rent.refundable, landlordName: 'Demo Landlord' }, '2026-10-04T11:00:00.000Z')
+  assert.equal(currentHandoverAcceptance(state, ['one']), undefined)
+  state = saveChargeProposal(state, { id: rent.id, name: rent.name, amountKobo: rent.amountKobo, purpose: rent.purpose, refundable: rent.refundable, landlordName: 'Demo Landlord' }, '2026-10-04T12:00:00.000Z')
+  assert.equal(currentHandoverAcceptance(state, ['one']), undefined)
+  assert.equal(state.handoverAcceptances.length, 1)
+})
+
+test('schema three migration preserves repairs and makes old acceptance historical', () => {
+  let oldState = withInspection(withReport())
+  oldState = confirmCommitment(oldState, 'one', 'Demo Tenant', now)
+  const legacy = { ...oldState, schemaVersion: 3, chargeProposals: undefined, chargeDecisions: undefined, handoverAcceptances: [{ id: 'old', tenantName: 'Demo Tenant', createdAt: now, snapshot: [{ commitmentId: 'one', reportRevisionId: oldState.completionReports.one.revisionId, inspectionRevisionId: oldState.inspections.one.revisionId, confirmationId: oldState.confirmations[0].id, evidenceIds: [] }] }] }
+  const migrated = loadWorkflowState(JSON.stringify(legacy), null, ids)
+  assert.equal(migrated.inspections.one.result, 'meets')
+  assert.equal(migrated.handoverAcceptances[0].chargeSnapshot.length, 0)
+  assert.equal(currentHandoverAcceptance(migrated, ['one']), undefined)
 })
 
 test('reset clears only associated RENTA demo records', () => {

@@ -4,8 +4,11 @@ export type CommitmentStatus =
   | 'Reported complete'
 
 export interface RentalCharge {
+  id: string
   label: string
   amount: number
+  purpose: string
+  refundable: boolean
 }
 
 export interface PropertyCommitment {
@@ -40,11 +43,11 @@ export const sampleRental: SampleRental = {
   landlord: 'Demo Landlord',
   agent: 'Demo Agent',
   plannedHandover: '10 November 2026',
-  approvalStatus: 'Approved — demo record',
+  approvalStatus: 'Sample agreement — demo record',
   charges: [
-    { label: 'Annual rent', amount: 1_200_000 },
-    { label: 'Agent fee', amount: 120_000 },
-    { label: 'Refundable caution deposit', amount: 100_000 },
+    { id: 'annual-rent', label: 'Annual rent', amount: 1_200_000, purpose: 'Annual rent for the sample tenancy.', refundable: false },
+    { id: 'agent-fee', label: 'Agent fee', amount: 120_000, purpose: 'Sample agency service charge.', refundable: false },
+    { id: 'caution-deposit', label: 'Refundable caution deposit', amount: 100_000, purpose: 'Sample refundable deposit, subject to the agreement.', refundable: true },
   ],
   commitments: [
     {

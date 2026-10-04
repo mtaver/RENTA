@@ -1,8 +1,10 @@
 import { INSPECTION_STORAGE_KEY, parseStoredInspections, type InspectionResult } from './inspections.ts'
 import type { EvidenceMetadata } from './evidence.ts'
+import { sampleRental } from '../data/sampleRental.ts'
+import { currentChargeDecision, sampleChargeProposals, type ChargeDecision, type ChargeProposal } from './charges.ts'
 
 export const WORKFLOW_STORAGE_KEY = 'renta:demo-workflow:v2'
-export const WORKFLOW_SCHEMA_VERSION = 3
+export const WORKFLOW_SCHEMA_VERSION = 4
 
 export type DemoRole = 'landlord' | 'tenant'
 
@@ -59,6 +61,7 @@ export interface HandoverAcceptance {
     confirmationId: string
     evidenceIds: string[]
   }>
+  chargeSnapshot: Array<{ chargeId: string, proposalRevisionId: string, decisionId: string }>
 }
 
 export interface ActivityEvent {
@@ -67,11 +70,12 @@ export interface ActivityEvent {
   actorName: string
   action: string
   commitmentId?: string
+  chargeId?: string
   timestamp: string
 }
 
 export interface WorkflowState {
-  schemaVersion: 3
+  schemaVersion: 4
   completionReports: Record<string, CompletionReport>
   inspections: Record<string, VersionedInspection>
   confirmations: TenantConfirmation[]
@@ -79,6 +83,8 @@ export interface WorkflowState {
   handoverAcceptances: HandoverAcceptance[]
   activity: ActivityEvent[]
   evidence: Record<string, EvidenceMetadata>
+  chargeProposals: Record<string, ChargeProposal>
+  chargeDecisions: ChargeDecision[]
 }
 
 export type AgreementStatus =
@@ -91,7 +97,7 @@ export type AgreementStatus =
 
 export function emptyWorkflowState(): WorkflowState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     completionReports: {},
     inspections: {},
     confirmations: [],
@@ -99,6 +105,8 @@ export function emptyWorkflowState(): WorkflowState {
     handoverAcceptances: [],
     activity: [],
     evidence: {},
+    chargeProposals: sampleChargeProposals(sampleRental.charges),
+    chargeDecisions: [],
   }
 }
 
@@ -137,6 +145,22 @@ function isEvidence(value: unknown, allowed: Set<string>): value is EvidenceMeta
     && isText(item.mimeType) && typeof item.size === 'number' && isText(item.createdAt)
 }
 
+function isChargeProposal(value: unknown): value is ChargeProposal {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<ChargeProposal>
+  return isText(item.id) && isText(item.revisionId) && typeof item.version === 'number' && isText(item.name)
+    && Number.isSafeInteger(item.amountKobo) && (item.amountKobo ?? 0) > 0 && isText(item.purpose)
+    && typeof item.refundable === 'boolean' && typeof item.landlordName === 'string' && typeof item.updatedAt === 'string'
+    && (item.source === 'sample' || item.source === 'recorded')
+}
+
+function isChargeDecision(value: unknown): value is ChargeDecision {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<ChargeDecision>
+  return isText(item.id) && isText(item.chargeId) && isText(item.proposalRevisionId) && isText(item.tenantName)
+    && isText(item.createdAt) && (item.type === 'approved' || (item.type === 'objected' && isText(item.reason)))
+}
+
 export function loadWorkflowState(
   workflowValue: string | null,
   legacyInspectionValue: string | null,
@@ -146,21 +170,26 @@ export function loadWorkflowState(
     try {
       const parsed = JSON.parse(workflowValue) as Partial<WorkflowState>
       const storedSchema = (parsed as { schemaVersion?: number }).schemaVersion
-      if (storedSchema !== 2 && storedSchema !== WORKFLOW_SCHEMA_VERSION) return emptyWorkflowState()
+      if (storedSchema !== 2 && storedSchema !== 3 && storedSchema !== WORKFLOW_SCHEMA_VERSION) return emptyWorkflowState()
       const allowed = new Set(commitmentIds)
       const completionReports = Object.fromEntries(Object.entries(parsed.completionReports ?? {}).filter(([id, value]) => allowed.has(id) && isCompletionReport(value)))
       const inspections = Object.fromEntries(Object.entries(parsed.inspections ?? {}).filter(([id, value]) => allowed.has(id) && isInspection(value)))
       const evidence = Object.fromEntries(Object.entries(parsed.evidence ?? {}).filter(([, value]) => isEvidence(value, allowed)))
       const migratedInspections = Object.fromEntries(Object.entries(inspections).map(([id, item]) => [id, { ...item, evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds.filter((evidenceId) => evidenceId in evidence) : [] }]))
+      const parsedCharges = Object.fromEntries(Object.entries(parsed.chargeProposals ?? {}).filter(([, value]) => isChargeProposal(value)))
+      const chargeProposals = { ...sampleChargeProposals(sampleRental.charges), ...parsedCharges }
+      const chargeDecisions = Array.isArray(parsed.chargeDecisions) ? parsed.chargeDecisions.filter(isChargeDecision).filter((decision) => decision.chargeId in chargeProposals) : []
       return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         completionReports,
         inspections: migratedInspections,
         confirmations: Array.isArray(parsed.confirmations) ? parsed.confirmations.filter((item): item is TenantConfirmation => Boolean(item && isText(item.id) && allowed.has(item.commitmentId))).map((item) => ({ ...item, evidenceIds: Array.isArray(item.evidenceIds) ? item.evidenceIds.filter((id) => id in evidence) : [] })) : [],
         objections: Array.isArray(parsed.objections) ? parsed.objections.filter((item): item is Objection => Boolean(item && isText(item.id) && Array.isArray(item.commitmentIds) && item.commitmentIds.every((id) => allowed.has(id)) && item.open === true)) : [],
-        handoverAcceptances: Array.isArray(parsed.handoverAcceptances) ? parsed.handoverAcceptances.filter((item): item is HandoverAcceptance => Boolean(item && isText(item.id) && Array.isArray(item.snapshot))).map((item) => ({ ...item, snapshot: item.snapshot.map((snapshot) => ({ ...snapshot, evidenceIds: Array.isArray(snapshot.evidenceIds) ? snapshot.evidenceIds.filter((id) => id in evidence) : [] })) })) : [],
+        handoverAcceptances: Array.isArray(parsed.handoverAcceptances) ? parsed.handoverAcceptances.filter((item): item is HandoverAcceptance => Boolean(item && isText(item.id) && Array.isArray(item.snapshot))).map((item) => ({ ...item, snapshot: item.snapshot.map((snapshot) => ({ ...snapshot, evidenceIds: Array.isArray(snapshot.evidenceIds) ? snapshot.evidenceIds.filter((id) => id in evidence) : [] })), chargeSnapshot: Array.isArray(item.chargeSnapshot) ? item.chargeSnapshot : [] })) : [],
         activity: Array.isArray(parsed.activity) ? parsed.activity.filter((item): item is ActivityEvent => Boolean(item && isText(item.id) && isText(item.action))) : [],
         evidence,
+        chargeProposals,
+        chargeDecisions,
       }
     } catch {
       return emptyWorkflowState()
@@ -176,6 +205,29 @@ export function loadWorkflowState(
     evidenceIds: [],
   }]))
   return state
+}
+
+export function saveChargeProposal(state: WorkflowState, input: Pick<ChargeProposal, 'id' | 'name' | 'amountKobo' | 'purpose' | 'refundable' | 'landlordName'>, now: string): WorkflowState {
+  const previous = state.chargeProposals[input.id]
+  const version = previous?.source === 'recorded' ? previous.version + 1 : 1
+  const proposal: ChargeProposal = { ...input, version, source: 'recorded', updatedAt: now, revisionId: uid(`charge-${input.id}-v${version}`, now) }
+  return { ...state, chargeProposals: { ...state.chargeProposals, [input.id]: proposal }, activity: [...state.activity, { id: uid('activity', now, state.activity.length), actorRole: 'landlord', actorName: input.landlordName, action: previous?.source === 'recorded' ? 'Edited charge proposal' : 'Submitted charge proposal', chargeId: input.id, timestamp: now }] }
+}
+
+export function decideCharge(state: WorkflowState, chargeId: string, type: ChargeDecision['type'], tenantName: string, reason: string | undefined, now: string): WorkflowState {
+  const proposal = state.chargeProposals[chargeId]
+  if (!proposal || proposal.source !== 'recorded' || !tenantName.trim() || (type === 'objected' && !reason?.trim())) return state
+  const decision: ChargeDecision = { id: uid(`charge-decision-${chargeId}`, now, state.chargeDecisions.length), chargeId, proposalRevisionId: proposal.revisionId, type, tenantName: tenantName.trim(), reason: type === 'objected' ? reason!.trim() : undefined, createdAt: now }
+  return { ...state, chargeDecisions: [...state.chargeDecisions, decision], activity: [...state.activity, { id: uid('activity', now, state.activity.length), actorRole: 'tenant', actorName: decision.tenantName, action: type === 'approved' ? 'Approved charge proposal' : 'Objected to charge proposal', chargeId, timestamp: now }] }
+}
+
+export function hasOpenChargeObjection(state: WorkflowState) {
+  return Object.values(state.chargeProposals).some((proposal) => currentChargeDecision(state.chargeDecisions, proposal)?.type === 'objected')
+}
+
+export function allCurrentChargesApproved(state: WorkflowState) {
+  const proposals = Object.values(state.chargeProposals)
+  return proposals.length > 0 && proposals.every((proposal) => proposal.source === 'recorded' && currentChargeDecision(state.chargeDecisions, proposal)?.type === 'approved')
 }
 
 export function saveCompletionReport(state: WorkflowState, input: Omit<CompletionReport, 'revisionId' | 'version' | 'updatedAt'>, now: string): WorkflowState {
@@ -286,7 +338,7 @@ export function saveObjection(state: WorkflowState, input: Pick<Objection, 'id' 
 }
 
 export function canAcceptHandover(state: WorkflowState, commitmentIds: string[]) {
-  return !hasOpenObjection(state) && commitmentIds.every((id) => Boolean(currentConfirmation(state, id)))
+  return !hasOpenObjection(state) && !hasOpenChargeObjection(state) && allCurrentChargesApproved(state) && commitmentIds.every((id) => Boolean(currentConfirmation(state, id)))
 }
 
 export function acceptHandover(state: WorkflowState, commitmentIds: string[], tenantName: string, now: string): WorkflowState {
@@ -300,6 +352,7 @@ export function acceptHandover(state: WorkflowState, commitmentIds: string[], te
       confirmationId: currentConfirmation(state, commitmentId)!.id,
       evidenceIds: [...state.inspections[commitmentId].evidenceIds],
     })),
+    chargeSnapshot: Object.values(state.chargeProposals).map((proposal) => ({ chargeId: proposal.id, proposalRevisionId: proposal.revisionId, decisionId: currentChargeDecision(state.chargeDecisions, proposal)!.id })),
   }
   return {
     ...state,
@@ -310,7 +363,11 @@ export function acceptHandover(state: WorkflowState, commitmentIds: string[], te
 
 export function currentHandoverAcceptance(state: WorkflowState, commitmentIds: string[]) {
   if (!canAcceptHandover(state, commitmentIds)) return undefined
-  return [...state.handoverAcceptances].reverse().find((acceptance) => acceptance.snapshot.every((snapshot) => {
+  return [...state.handoverAcceptances].reverse().find((acceptance) => acceptance.chargeSnapshot.length === Object.keys(state.chargeProposals).length
+    && acceptance.chargeSnapshot.every((snapshot) => {
+      const proposal = state.chargeProposals[snapshot.chargeId]
+      return proposal?.revisionId === snapshot.proposalRevisionId && currentChargeDecision(state.chargeDecisions, proposal)?.id === snapshot.decisionId
+    }) && acceptance.snapshot.every((snapshot) => {
     const confirmation = currentConfirmation(state, snapshot.commitmentId)
     return state.completionReports[snapshot.commitmentId]?.revisionId === snapshot.reportRevisionId
       && state.inspections[snapshot.commitmentId]?.revisionId === snapshot.inspectionRevisionId
