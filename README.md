@@ -72,7 +72,31 @@ npm run build
 
 6. Start or restart Vite after changing `.env.local`.
 
-Without valid environment values, RENTA deliberately shows a configuration-required state. Authentication has not been verified against a live Supabase project in this repository checkout.
+Without valid environment values, RENTA deliberately shows a configuration-required state.
+
+## Setup and verification status
+
+Status recorded on 5 October 2026. No account emails, user IDs, keys, credentials or session tokens are stored in this repository.
+
+### Automated repository checks
+
+- All 38 Node test-runner checks passed, including the existing local-demo workflow suite and the account profile-validation and protected-navigation checks.
+- The TypeScript project check completed successfully.
+- The Vite production build completed successfully. Vite emitted a non-failing advisory that the main JavaScript chunk is larger than 500 kB.
+- These automated checks do not connect to the hosted Supabase project and do not, by themselves, prove live authentication or database policy enforcement.
+
+### User-observed live Supabase checks
+
+- The version-controlled account migration was applied successfully through the Supabase SQL Editor.
+- The local project URL and publishable key were configured in the ignored `.env.local` file; the configuration-required screen no longer appeared.
+- The local Site URL and email-verification/password-reset redirect URLs were configured for `http://localhost:5173`.
+- Two fictional, email-verified accounts were created using inboxes controlled by the tester and the default Supabase test-email service.
+- Session restoration, profile persistence after refresh, sign-out, signed-out dashboard protection, sign-in and password reset were manually exercised successfully.
+- A temporary, uncommitted public-client harness was run with both ordinary user sessions. It reported 18 passing checks: each user could read and reversibly update only their own profile; targeted cross-user reads returned no rows in both directions; targeted cross-user updates returned no rows and the target profiles remained unchanged when re-read in their own sessions; signed-out profile reads and updates were denied; and both ordinary users received database permission denials when attempting to insert, update or delete agency membership.
+- The temporary permission harness was removed after the checks and was never committed.
+- The first trusted reviewer membership was provisioned through the Supabase SQL Editor with `staff_role = 'reviewer'`. The selected user then observed the agency-staff dashboard placeholder after signing in.
+
+The live checks above were performed and reported by the project owner in the browser. They are recorded separately from checks run automatically in this repository.
 
 ## Database permissions
 
@@ -109,6 +133,8 @@ set staff_role = excluded.staff_role,
 ```
 
 Replace the email with the verified reviewer’s address. Run this only through a trusted administrative connection. Do not put a service-role key in the browser, `.env.local` values prefixed with `VITE_`, source code or Git.
+
+The first test reviewer has been provisioned through this trusted process with the `reviewer` role. No public client or profile-editing screen was used to grant the role, and no administrator role was assigned.
 
 ## Local demo separation
 
